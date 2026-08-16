@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useRef, useEffect } from "react";
 import * as THREE from "three";
 
 function seededRand(seed) {
@@ -72,8 +72,16 @@ function useWindowTexture(cols, rows, litColor, seed) {
 }
 
 function HeroSpireTower({ x, z, h, w, baseY }) {
+  const groupRef = useRef();
   const segments = 8;
   const windowTex = useWindowTexture(6, 60, "#e8f0f5", 999);
+
+  useEffect(() => {
+    if (groupRef.current) {
+      groupRef.current.matrixAutoUpdate = false;
+      groupRef.current.updateMatrix();
+    }
+  }, []);
 
   const geo = useMemo(() => {
     const geometries = [];
@@ -89,9 +97,9 @@ function HeroSpireTower({ x, z, h, w, baseY }) {
   }, [h, w]);
 
   return (
-    <group position={[x, baseY, z]}>
+    <group ref={groupRef} position={[x, baseY, z]} raycast={() => null}>
       {geo.map((g, i) => (
-        <mesh key={i} geometry={g} castShadow receiveShadow>
+        <mesh key={i} geometry={g} castShadow receiveShadow raycast={() => null}>
           <meshPhysicalMaterial
             map={windowTex}
             emissiveMap={windowTex}
@@ -110,11 +118,11 @@ function HeroSpireTower({ x, z, h, w, baseY }) {
           />
         </mesh>
       ))}
-      <mesh position={[0, h * 0.85 + h * 0.13, 0]}>
+      <mesh position={[0, h * 0.85 + h * 0.13, 0]} raycast={() => null}>
         <cylinderGeometry args={[0.08, 0.15, h * 0.26, 6]} />
         <meshStandardMaterial color="#c8c8c8" metalness={0.9} roughness={0.2} />
       </mesh>
-      <mesh position={[0, h * 0.85 + h * 0.26, 0]}>
+      <mesh position={[0, h * 0.85 + h * 0.26, 0]} raycast={() => null}>
         <sphereGeometry args={[0.3, 8, 8]} />
         <meshBasicMaterial color="#ff3b30" toneMapped={false} />
       </mesh>
@@ -122,15 +130,50 @@ function HeroSpireTower({ x, z, h, w, baseY }) {
   );
 }
 
-function Tower({ x, z, h, w, d, lit, seed, baseY }) {
+function TowerField({ count, seed, xRange, zRange, hRange, wRange, litRatio = 0.6, baseY }) {
+  const groupRef = useRef();
   const rnd = useMemo(() => seededRand(seed), [seed]);
+  
+  useEffect(() => {
+    if (groupRef.current) {
+      groupRef.current.matrixAutoUpdate = false;
+      groupRef.current.updateMatrix();
+    }
+  }, []);
+
+  const towers = useMemo(() => {
+    const arr = [];
+    for (let i = 0; i < count; i++) {
+      const x = xRange[0] + rnd() * (xRange[1] - xRange[0]);
+      const z = zRange[0] + rnd() * (zRange[1] - zRange[0]);
+      const h = hRange[0] + rnd() * (hRange[1] - hRange[0]);
+      const w = wRange[0] + rnd() * (wRange[1] - wRange[0]);
+      const d = w * (0.6 + rnd() * 0.6);
+      const lit = rnd() < litRatio;
+      arr.push({ x, z, h, w, d, lit, key: i, tseed: seed * 1000 + i });
+    }
+    return arr.sort((a, b) => a.z - b.z);
+  }, [count, seed, xRange, zRange, hRange, wRange, rnd, litRatio]);
+
+  return (
+    <group ref={groupRef} raycast={() => null}>
+      {towers.map((t) => (
+        <StaticTower key={t.key} {...t} baseY={baseY} />
+      ))}
+    </group>
+  );
+}
+
+function StaticTower({ x, z, h, w, d, lit, tseed, baseY }) {
+  const meshRef = useRef();
+  const rnd = useMemo(() => seededRand(tseed), [tseed]);
   const glow = useMemo(() => GLASS_COOL[Math.floor(rnd() * GLASS_COOL.length)], [rnd]);
   const shapeKind = rnd() < 0.35 ? "chamfer" : rnd() < 0.6 ? "L" : "rect";
   const shape = useMemo(() => makeFootprint(w, d, shapeKind, rnd), [w, d, shapeKind, rnd]);
   
   const windowCols = Math.max(4, Math.round(w));
   const windowRows = Math.max(10, Math.round(h / 2.2));
-  const windowTex = useWindowTexture(windowCols, windowRows, glow, seed);
+  const windowTex = useWindowTexture(windowCols, windowRows, glow, tseed);
 
   const hasWaterTower = rnd() < 0.2;
   const hasHvac = rnd() < 0.25 && !hasWaterTower;
@@ -156,9 +199,16 @@ function Tower({ x, z, h, w, d, lit, seed, baseY }) {
     return geo;
   }, [topShape, h]);
 
+  useEffect(() => {
+    if (meshRef.current) {
+      meshRef.current.matrixAutoUpdate = false;
+      meshRef.current.updateMatrix();
+    }
+  }, []);
+
   return (
-    <group position={[x, baseY, z]}>
-      <mesh geometry={baseGeo} position={[0, 0, 0]} castShadow receiveShadow>
+    <group ref={meshRef} position={[x, baseY, z]} raycast={() => null}>
+      <mesh geometry={baseGeo} position={[0, 0, 0]} castShadow receiveShadow raycast={() => null}>
         <meshPhysicalMaterial
           map={windowTex}
           emissiveMap={windowTex}
@@ -176,7 +226,7 @@ function Tower({ x, z, h, w, d, lit, seed, baseY }) {
         />
       </mesh>
 
-      <mesh geometry={midGeo} position={[0, h * 0.55, 0]} castShadow receiveShadow>
+      <mesh geometry={midGeo} position={[0, h * 0.55, 0]} castShadow receiveShadow raycast={() => null}>
         <meshPhysicalMaterial
           map={windowTex}
           emissiveMap={windowTex}
@@ -192,7 +242,7 @@ function Tower({ x, z, h, w, d, lit, seed, baseY }) {
         />
       </mesh>
 
-      <mesh geometry={topGeo} position={[0, h * 0.85, 0]} castShadow receiveShadow>
+      <mesh geometry={topGeo} position={[0, h * 0.85, 0]} castShadow receiveShadow raycast={() => null}>
         <meshPhysicalMaterial
           map={windowTex}
           emissiveMap={windowTex}
@@ -209,12 +259,12 @@ function Tower({ x, z, h, w, d, lit, seed, baseY }) {
       </mesh>
 
       {hasWaterTower && (
-        <group position={[w * 0.15, h, d * 0.15]}>
-          <mesh position={[0, 0.3, 0]}>
+        <group position={[w * 0.15, h, d * 0.15]} raycast={() => null}>
+          <mesh position={[0, 0.3, 0]} raycast={() => null}>
             <cylinderGeometry args={[0.25, 0.25, 0.5, 10]} />
             <meshStandardMaterial color="#2d1c14" roughness={0.8} />
           </mesh>
-          <mesh position={[0, 0.6, 0]}>
+          <mesh position={[0, 0.6, 0]} raycast={() => null}>
             <coneGeometry args={[0.27, 0.2, 10]} />
             <meshStandardMaterial color="#1a110a" roughness={0.8} />
           </mesh>
@@ -222,19 +272,19 @@ function Tower({ x, z, h, w, d, lit, seed, baseY }) {
       )}
 
       {hasHvac && (
-        <mesh position={[-w * 0.15, h + 0.2, -d * 0.15]} castShadow>
+        <mesh position={[-w * 0.15, h + 0.2, -d * 0.15]} castShadow raycast={() => null}>
           <boxGeometry args={[0.5, 0.4, 0.8]} />
           <meshStandardMaterial color="#3a3d42" metalness={0.6} roughness={0.4} />
         </mesh>
       )}
 
       {hasSpire && (
-        <group position={[0, h, 0]}>
-          <mesh position={[0, h * 0.06, 0]}>
+        <group position={[0, h, 0]} raycast={() => null}>
+          <mesh position={[0, h * 0.06, 0]} raycast={() => null}>
             <cylinderGeometry args={[0.06, 0.12, h * 0.12, 6]} />
             <meshStandardMaterial color="#2a2a2a" metalness={0.8} roughness={0.2} />
           </mesh>
-          <mesh position={[0, h * 0.13, 0]}>
+          <mesh position={[0, h * 0.13, 0]} raycast={() => null}>
             <sphereGeometry args={[0.15, 8, 8]} />
             <meshBasicMaterial color="#ff3b30" toneMapped={false} />
           </mesh>
@@ -244,48 +294,23 @@ function Tower({ x, z, h, w, d, lit, seed, baseY }) {
   );
 }
 
-function TowerField({ count, seed, xRange, zRange, hRange, wRange, litRatio = 0.6, baseY }) {
-  const rnd = useMemo(() => seededRand(seed), [seed]);
-  const towers = useMemo(() => {
-    const arr = [];
-    for (let i = 0; i < count; i++) {
-      const x = xRange[0] + rnd() * (xRange[1] - xRange[0]);
-      const z = zRange[0] + rnd() * (zRange[1] - zRange[0]);
-      const h = hRange[0] + rnd() * (hRange[1] - hRange[0]);
-      const w = wRange[0] + rnd() * (wRange[1] - wRange[0]);
-      const d = w * (0.6 + rnd() * 0.6);
-      const lit = rnd() < litRatio;
-      arr.push({ x, z, h, w, d, lit, key: i, tseed: seed * 1000 + i });
-    }
-    return arr.sort((a, b) => a.z - b.z);
-  }, [count, seed, xRange, zRange, hRange, wRange, rnd, litRatio]);
-
-  return (
-    <group>
-      {towers.map((t) => (
-        <Tower key={t.key} x={t.x} z={t.z} h={t.h} w={t.w} d={t.d} lit={t.lit} seed={t.tseed} baseY={baseY} />
-      ))}
-    </group>
-  );
-}
-
 function SkylineCluster({ showBackdrop = false }) {
   return (
-    <>
+    <group raycast={() => null}>
       {showBackdrop && (
         <>
-          <mesh position={[0, 90, -350]}>
+          <mesh position={[0, 90, -350]} raycast={() => null}>
             <planeGeometry args={[1200, 300]} />
             <meshBasicMaterial color="#3f6b96" transparent opacity={0.7} toneMapped={false} />
           </mesh>
-          <mesh position={[0, 30, -340]}>
+          <mesh position={[0, 30, -340]} raycast={() => null}>
             <planeGeometry args={[1200, 160]} />
             <meshBasicMaterial color="#e8a15c" transparent opacity={0.3} toneMapped={false} />
           </mesh>
         </>
       )}
 
-      <mesh position={[0, 10, -80]}>
+      <mesh position={[0, 10, -80]} raycast={() => null}>
         <planeGeometry args={[1200, 60]} />
         <meshBasicMaterial color="#d4a373" transparent opacity={0.18} toneMapped={false} />
       </mesh>
@@ -297,11 +322,11 @@ function SkylineCluster({ showBackdrop = false }) {
 
       <HeroSpireTower x={0} z={35} h={95} w={11} baseY={0} />
 
-      <mesh position={[0, 4, 60]} rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh position={[0, 4, 60]} rotation={[-Math.PI / 2, 0, 0]} raycast={() => null}>
         <planeGeometry args={[1200, 80]} />
         <meshBasicMaterial color="#8fb0c4" transparent opacity={0.08} toneMapped={false} />
       </mesh>
-    </>
+    </group>
   );
 }
 
