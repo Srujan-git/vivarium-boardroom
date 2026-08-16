@@ -1,4 +1,4 @@
-import React, { Suspense, useCallback } from "react";
+import React, { Suspense, useCallback, useRef, useEffect } from "react";
 import { ContactShadows, Environment, Sky } from "@react-three/drei";
 import { PALETTE } from "./constants";
 import Floor from "./environment/Floor";
@@ -12,14 +12,10 @@ import Bullpen from "./rooms/Bullpen";
 import Boardroom from "./rooms/Boardroom";
 import Pantry from "./rooms/Pantry";
 
-/* ============================================================================
-   SCENE ROOT
-   Composes: atmosphere (fog/sky/lighting) → environment shell (floor,
-   hallway, ceiling, skyline) → rooms (each self-registers colliders/doors)
-   → contact shadows → the FPS rig (must mount last so camera/controls
-   attach after all colliders in the same frame graph are set up).
-============================================================================ */
 export default function Scene({ activeRoom, onDoorClick, setLocked, doorColliders, staticBoxesRef, registerStatic, lockTrigger }) {
+  const envRef = useRef();
+  const skylineRef = useRef();
+
   const registerDoorCollider = useCallback(
     (roomId, collider) => {
       doorColliders.current.set(roomId, collider);
@@ -27,16 +23,23 @@ export default function Scene({ activeRoom, onDoorClick, setLocked, doorCollider
     [doorColliders]
   );
 
+  // Freeze static environment and skyline matrices permanently on mount to kill CPU matrix churn
+  useEffect(() => {
+    if (envRef.current) {
+      envRef.current.matrixAutoUpdate = false;
+      envRef.current.updateMatrix();
+    }
+    if (skylineRef.current) {
+      skylineRef.current.matrixAutoUpdate = false;
+      skylineRef.current.updateMatrix();
+    }
+  }, []);
+
   return (
     <>
       <color attach="background" args={["#e9c8a0"]} />
-      {/* Slightly denser, warmer haze — sells the 47th-floor golden-hour
-          penthouse feel and hides skyline tiling at the horizon without a
-          hard fog cutoff. */}
       <AtmosphericFog color="#e9c8a0" density={0.004} />
 
-      {/* Warm golden-hour key light, soft PCF shadows, 1024 shadow map for
-          stutter-free movement on ultrabook GPUs. */}
       <directionalLight
         position={[-25, 20, 22]}
         intensity={2.8}
@@ -54,30 +57,32 @@ export default function Scene({ activeRoom, onDoorClick, setLocked, doorCollider
       <hemisphereLight args={["#f2c98e", "#20130a", 0.4]} />
       <directionalLight position={[18, 10, -20]} intensity={0.35} color="#bcd4e8" />
 
+      {/* Skyline wrapped in raycast-null and frozen group */}
       <Suspense fallback={null}>
-        {/* Front Skyline */}
-        <Skyline position={[0, 0, -90]} />
-        
-        {/* Back Skyline behind the 4 Glass Cabins */}
-        <Skyline position={[0, 0, 80]} rotation={[0, Math.PI, 0]} />
-
+        <group ref={skylineRef} raycast={() => null}>
+          <Skyline position={[0, 0, -90]} />
+          <Skyline position={[0, 0, 80]} rotation={[0, Math.PI, 0]} />
+        </group>
         <Sky sunPosition={[-25, 8, 18]} turbidity={4} rayleigh={1.2} mieCoefficient={0.02} mieDirectionalG={0.85} />
         <Environment preset="city" background={false} environmentIntensity={1.25} />
       </Suspense>
 
-      <Floor />
-      <RooftopTerrace /> 
-      <Hallway />
-      <Ceiling />
+      {/* Static office environment shell wrapped to eliminate raycasting and matrix overhead */}
+      <group ref={envRef} raycast={() => null}>
+        <Floor />
+        <RooftopTerrace /> 
+        <Hallway />
+        <Ceiling />
+      </group>
 
       <FoundersCorner 
-  position={[-17.25, 0, -15.5]} 
-  rotationY={Math.PI} 
-  onDoorClick={onDoorClick} 
-  active={activeRoom === "founder"} 
-  registerCollider={registerStatic} 
-  registerDoorCollider={registerDoorCollider} 
-/>
+        position={[-17.25, 0, -15.5]} 
+        rotationY={Math.PI} 
+        onDoorClick={onDoorClick} 
+        active={activeRoom === "founder"} 
+        registerCollider={registerStatic} 
+        registerDoorCollider={registerDoorCollider} 
+      />
       
       <GlassCabin x={-17.25} roomId="cfa" onDoorClick={onDoorClick} active={activeRoom === "cfa"} label="CFA LEVEL III" registerCollider={registerStatic} registerDoorCollider={registerDoorCollider} monitors={2} />
       <GlassCabin x={-5.75} roomId="banker" onDoorClick={onDoorClick} active={activeRoom === "banker"} label="INVESTMENT BANKING" registerCollider={registerStatic} registerDoorCollider={registerDoorCollider} monitors={3} />
